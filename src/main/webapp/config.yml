@@ -1,0 +1,55 @@
+plugins:
+  webapp:
+    #uid: 501
+    #gid: 20
+    #filterpath: '/_webapptemplate/'
+    #filterpath: ''
+    #path: 'www'
+    #path: 'myfavoritesubdirname'
+    mapper:
+      mapper1:
+        type:   'org.xbib.elasticsearch.webapp.resource.MarkupTemplateMapper'
+        script: 'demo/uritemplate/index.tpl'
+        path:   '/_webapp/demo/uritemplate/{page}/{number}/'
+      mapper2:
+        type:   'org.xbib.elasticsearch.webapp.resource.MarkupTemplateMapper'
+        script: 'demo/search/index.tpl'
+        path:   '/_webapp/demo/search/{p}/'
+      mapper3:
+        type:   'org.xbib.elasticsearch.webapp.resource.MarkupTemplateMapper'
+        script: 'demo/edit/index.tpl'
+        path:   '/_webapp/demo/edit/{p}/'
+    websocket:
+      path: '/_webapp/websocket'
+      handler:
+        echo:
+          type: 'org.xbib.elasticsearch.webapp.websocket.handler.EchoInteractionHandler'
+    security:
+      provider:
+        index:
+          type: 'org.xbib.elasticsearch.webapp.security.provider.index.IndexSecurityProvider'
+        ldap1:
+          type: 'org.xbib.elasticsearch.webapp.security.provider.ldap.LDAPSecurityProvider'
+          #initialcontextfactory: 'com.sun.jndi.ldap.LdapCtxFactory'
+          #providerurl: 'ldap://localhost:389'
+          #securityauthentication: 'simple'
+          #securityprincipal: 'cn=foobar,dc=example,dc=com'
+          #securitycredentials: 'foobar'
+          #basedn: 'dc=example,dc=com'
+    auth:
+      auth1:
+        type: org.xbib.elasticsearch.webapp.security.basic.BasicAuthenticator
+        provider: ldap1
+        path:
+          - '/_webapp/demo/auth/basic/'
+      auth2:
+        type: org.xbib.elasticsearch.webapp.security.form.FormAuthenticator
+        path:
+          - '/_webapp/demo/auth/form/'
+        loginpage: '/_webapp/demo/auth/form/index.tpl'
+        errorpage: '/_webapp/demo/auth/form/error.tpl'
+    #sql:
+    #  url: 'jdbc:h2:./h2test'
+    #  user: ''
+    #  password: ''
+

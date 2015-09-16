@@ -1,0 +1,179 @@
+import org.apache.tools.ant.filters.ReplaceTokens
+import org.apache.tools.ant.taskdefs.condition.Os
+
+group = 'org.xbib.elasticsearch.plugin'
+version = project.property('application.version')
+
+ext {
+    pluginName = 'webapp-example'
+    versions = [
+      'webapp' : '2.0.0-beta1.1',
+      'groovy': '2.4.4',
+      'jna': '4.1.0',
+      'jackson': '2.5.3',
+      'log4j': '2.2',
+      'junit' : '4.12',
+      'geb': '0.12.2',
+      'selenium': '2.46.0',
+      'chrome': '2.10',
+      'phantomJs':  '1.9.7'
+    ]
+    drivers = ["firefox", "chrome", "phantomJs"]
+}
+
+buildscript {
+    repositories {
+        mavenCentral()
+        jcenter()
+        maven {
+            url "http://xbib.org/repository"
+        }
+    }
+}
+
+apply plugin: 'groovy'
+apply plugin: 'application'
+apply plugin: 'maven'
+apply from: "gradle/downloads.gradle"
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+    maven {
+        url "http://xbib.org/repository"
+    }
+    maven {
+        url "http://repo.gradle.org/gradle/repo"
+    }
+}
+
+sourceSets {
+    integrationTest {
+        groovy {
+            compileClasspath += main.output + test.output
+            runtimeClasspath += main.output + test.output
+            srcDir file('src/integration-test/groovy')
+        }
+        resources {
+            srcDir file('src/integration-test/resources')
+        }
+    }
+}
+
+configurations {
+    providedCompile
+    releaseJars
+    integrationTestCompile.extendsFrom testCompile
+    integrationTestRuntime.extendsFrom testRuntime
+}
+
+dependencies {
+    compile 'org.xbib.elasticsearch.plugin:elasticsearch-webapp:' + versions.webapp
+    compile 'org.codehaus.groovy:groovy-all:' + versions.groovy
+    compile 'net.java.dev.jna:jna:' + versions.jna
+    releaseJars('org.xbib.elasticsearch.plugin:elasticsearch-webapp:' + versions.webapp) {
+        exclude group: 'org.elasticsearch'
+        exclude group: 'org.codehaus.groovy'
+        exclude group: 'net.java.dev.jna'
+        exclude group: 'com.sun.mail'
+    }
+    testCompile 'junit:junit:' + versions.junit
+    testCompile 'com.fasterxml.jackson.core:jackson-databind:' + versions.jackson
+    testCompile 'org.apache.logging.log4j:log4j-slf4j-impl:' + versions.log4j
+    testCompile 'org.apache.logging.log4j:log4j-api:'+ versions.log4j
+    testCompile 'org.apache.logging.log4j:log4j-core:'+ versions.log4j
+    integrationTestCompile 'junit:junit:' + versions.junit
+    integrationTestCompile 'org.spockframework:spock-core:1.0-groovy-2.4'
+    integrationTestCompile "org.gebish:geb-junit4:" + versions.geb
+    integrationTestCompile 'org.xbib.elasticsearch.plugin:elasticsearch-webapp:' + versions.webapp
+    // if this dependency is missing, Groovy can not load Elasticsearch QueryBuilders class
+    integrationTestCompile 'com.vividsolutions:jts:1.13'
+    integrationTestCompile 'org.seleniumhq.selenium:selenium-chrome-driver:' + versions.selenium
+    integrationTestCompile 'org.seleniumhq.selenium:selenium-firefox-driver:' + versions.selenium
+    integrationTestCompile("com.codeborne:phantomjsdriver:1.2.1") {
+        // phantomjs driver pulls in a different selenium version
+        transitive = false
+    }
+}
+
+tasks.withType(GroovyCompile) {
+    groovyOptions.optimizationOptions.indy = true
+}
+
+processResources {
+    filter ReplaceTokens, tokens: [
+        'application.version': project.property('application.version')
+    ]
+}
+
+task buildPluginZip(type: Zip, dependsOn: [':jar']) {
+    classifier = 'plugin'
+    from files(libsDir)
+    from configurations.releaseJars
+    from 'src/main/webapp'
+}
+
+task unpackPlugin(type: Copy, dependsOn: [':buildPluginZip']) {
+    into 'plugins/webapp'
+    from files(libsDir)
+    from configurations.releaseJars
+    from 'src/main/webapp'
+}
+
+drivers.each { driver ->
+    task "${driver}IntegrationTest"(type: Test, dependsOn: ['unpackPlugin']) {
+        testClassesDir = sourceSets.integrationTest.output.classesDir
+        classpath = configurations.integrationTestCompile
+        classpath += fileTree('plugins/webapp').include('*.jar')
+        classpath += sourceSets.integrationTest.output
+        // remove identical jars from classpath, otherwise Elasticsearch will complain a "jar hell"
+        classpath -= configurations.releaseJars
+        outputs.upToDateWhen { false }
+        systemProperty 'path.home', projectDir.absolutePath
+        reports {
+            junitXml.destination = file("$buildDir/test-results/${driver}")
+        }
+        systemProperty 'geb.build.reportsDir', reporting.file("${driver}/geb")
+        systemProperty 'geb.env', driver
+        testLogging.showStandardStreams = true
+    }
+}
+
+tasks.withType(Test) {
+    reports.html.destination = file("${reporting.baseDir}/${name}")
+}
+
+test {
+    systemProperty 'path.home', projectDir.absolutePath
+}
+
+firefoxIntegrationTest {
+    mustRunAfter test
+}
+
+chromeIntegrationTest {
+    mustRunAfter test
+    dependsOn unzipChromeDriver
+    def chromedriverFilename = Os.isFamily(Os.FAMILY_WINDOWS) ? "chromedriver.exe" : "chromedriver"
+    systemProperty "webdriver.chrome.driver", new File(unzipChromeDriver.outputs.files.singleFile, chromedriverFilename).absolutePath
+}
+
+phantomJsIntegrationTest {
+    mustRunAfter test
+    dependsOn unzipPhantomJs
+    def phantomJsFilename = Os.isFamily(Os.FAMILY_WINDOWS) ? "phantomjs.exe" : "bin/phantomjs"
+    systemProperty "phantomjs.binary.path", new File(unzipPhantomJs.outputs.files.singleFile, phantomJsFilename).absolutePath
+}
+
+artifacts {
+    archives buildPluginZip
+}
+
+clean {
+    delete "data"
+    delete "target"
+    delete "plugins"
+    delete "logs"
+}
